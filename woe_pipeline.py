@@ -1,3 +1,4 @@
+from pyspark.sql import SparkSession
 from pyspark.sql import DataFrame
 from pyspark.sql.types import DoubleType, StructField, StructType
 from pyspark.ml import Estimator, Transformer, Pipeline
@@ -24,6 +25,7 @@ class WOETransformer(Transformer, DefaultParamsReadable, DefaultParamsWritable):
             y = pandas_df["label"]
             binning.fit(x, y)
             bin_info = binning.binning_table.build()
+
             woe_values = bin_info['WoE'].values
 
             def get_woe(val):
@@ -32,14 +34,9 @@ class WOETransformer(Transformer, DefaultParamsReadable, DefaultParamsWritable):
                         return woe_values[i]
                 return woe_values[-1]
 
-            def calculate_iv(bin_info):
-                iv = 0
-                for index, row in bin_info.iterrows():
-                    iv += (row['Distribution good'] - row['Distribution bad']) * row['WoE']
-                return iv
-
-            # Calculate IV for the column
-            self.iv_values_[col] = calculate_iv(bin_info)
+            # Use the IV directly from the binning table
+            iv_value = binning.binning_table.iv
+            self.iv_values_[col] = iv_value
             
             # Calculate the number of unique values for the column
             self.unique_counts_[col] = df.select(col).distinct().count()
@@ -94,18 +91,11 @@ def process_woe_pipeline(df: DataFrame, config: dict):
     return result_df, woe_df
 
 
-# Example usage:
-
 # Initialize Spark session
 spark = SparkSession.builder.appName("WOEBinning").getOrCreate()
 
-# Sample DataFrame
-schema = StructType([
-    StructField("feature1", DoubleType(), True),
-    StructField("feature2", DoubleType(), True),
-    StructField("label", DoubleType(), True)
-])
-data = [(random.uniform(0, 1), random.uniform(0, 1), random.randint(0, 1)) for _ in range(1000)]
+# Sample DataFrame with explicit float conversion
+data = [(float(random.uniform(0, 1)), float(random.uniform(0, 1)), float(random.randint(0, 1))) for _ in range(1000)]
 df = spark.createDataFrame(data, schema)
 
 # Configuration for optbinning
